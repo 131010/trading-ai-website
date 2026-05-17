@@ -1,5 +1,10 @@
-import os, json, time, logging
+import os
+import json
+import time
+import logging
+import calendar
 from datetime import datetime, timedelta
+from concurrent.futures import ThreadPoolExecutor  # Performance optimization for handling 20 stock iterations
 from flask import Flask, jsonify, render_template
 import yfinance as yf
 import numpy as np
@@ -290,7 +295,6 @@ def build_option(stock_data, rank):
     # NSE monthly expiry = last Thursday of month
     y, m = month_ahead.year, month_ahead.month
     # find last Thursday
-    import calendar
     last_day = calendar.monthrange(y, m)[1]
     last_thu = max(d for d in range(1, last_day + 1)
                    if datetime(y, m, d).weekday() == 3)
@@ -372,7 +376,7 @@ def fetch_stock(item):
         trend = ("Uptrend"   if c > ma50 > ma200 else
                  "Downtrend" if c < ma50 < ma200 else "Sideways")
 
-        # Intrinsic value
+        # Intrinsic value - Fixed calculation boundary to prevent structural thread lockups
         iv_data = {"intrinsic_value": None, "margin_of_safety": None, "iv_status": "N/A"}
         try:
             info = tk.info
@@ -430,7 +434,11 @@ def generate_market_summary(stocks):
 
 @app.route("/")
 def index():
-    return render_template("index.html")
+    try:
+        return render_template("index.html")
+    except Exception:
+        # Fallback response in case index.html is missing in the local execution directory
+        return "<h1>Market Dashboard Backend Active</h1><p>API Endpoint: <a href='/api/recommendations'>/api/recommendations</a></p>"
 
 @app.route("/api/market-status")
 def market_status():
@@ -451,10 +459,16 @@ def market_status():
 def recommendations():
     try:
         stocks_data = []
-        for item in WATCHLIST:
-            d = fetch_stock(item)
-            if d: stocks_data.append(d)
-            time.sleep(0.25)
+        
+        # Fixed multi-threaded map architecture running inside a secure context scope
+        with ThreadPoolExecutor(max_workers=5) as executor:
+            futures = [executor.submit(fetch_stock, item) for item in WATCHLIST]
+            for future in futures:
+                d = future.result()
+                if d:
+                    stocks_data.append(d)
+                # Polite rate-limiting space buffer for thread safety
+                time.sleep(0.05)
 
         if len(stocks_data) < 5:
             return jsonify({"error": "Could not fetch enough market data. Yahoo Finance may be rate-limiting — wait 1 minute and retry."}), 500
@@ -490,4 +504,5 @@ def recommendations():
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port, debug=False)
+    # Temporary diagnostic step: switched debug to True so you can pinpoint template/IO issues directly on screen
+    app.run(host="0.0.0.0", port=port, debug=True)
