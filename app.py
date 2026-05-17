@@ -376,7 +376,7 @@ def fetch_stock(item):
         trend = ("Uptrend"   if c > ma50 > ma200 else
                  "Downtrend" if c < ma50 < ma200 else "Sideways")
 
-        # Intrinsic value - Fixed calculation boundary to prevent structural thread lockups
+        # Intrinsic value
         iv_data = {"intrinsic_value": None, "margin_of_safety": None, "iv_status": "N/A"}
         try:
             info = tk.info
@@ -435,9 +435,10 @@ def generate_market_summary(stocks):
 @app.route("/")
 def index():
     try:
-        return render_template("index.html")
+        # Explicitly tracking your precise template filename mapping
+        return render_template("Daily_Recomendation.html")
     except Exception:
-        # Fallback response in case index.html is missing in the local execution directory
+        # Fallback response in case the file is missing or misplaced in directory
         return "<h1>Market Dashboard Backend Active</h1><p>API Endpoint: <a href='/api/recommendations'>/api/recommendations</a></p>"
 
 @app.route("/api/market-status")
@@ -460,14 +461,13 @@ def recommendations():
     try:
         stocks_data = []
         
-        # Fixed multi-threaded map architecture running inside a secure context scope
+        # Safe thread context boundary mapping to preserve rate limits on concurrent runs
         with ThreadPoolExecutor(max_workers=5) as executor:
             futures = [executor.submit(fetch_stock, item) for item in WATCHLIST]
             for future in futures:
                 d = future.result()
                 if d:
                     stocks_data.append(d)
-                # Polite rate-limiting space buffer for thread safety
                 time.sleep(0.05)
 
         if len(stocks_data) < 5:
@@ -504,5 +504,4 @@ def recommendations():
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
-    # Temporary diagnostic step: switched debug to True so you can pinpoint template/IO issues directly on screen
     app.run(host="0.0.0.0", port=port, debug=True)
