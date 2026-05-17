@@ -414,16 +414,20 @@ def fetch_stock(item):
 
 # ── Market summary ─────────────────────────────────────────────────────────
 
-def generate_market_summary(stocks):
-    buys   = sum(1 for s in stocks if s.get("signal") == "BUY")
-    sells  = sum(1 for s in stocks if s.get("signal") == "SELL")
-    avg_rsi = round(np.mean([s["rsi"] for s in stocks if s.get("rsi")]), 1)
+def generate_market_summary(stocks, processed_recs):
+    buys   = sum(1 for s in processed_recs if s.get("signal") == "BUY")
+    sells  = sum(1 for s in processed_recs if s.get("signal") == "SELL")
+    
+    # Bugfix focus point: parsing from raw 'stocks' metrics list where 'rsi' keys are intact
+    rsi_vals = [s["rsi"] for s in stocks if s.get("rsi") is not None]
+    avg_rsi = round(np.mean(rsi_vals), 1) if rsi_vals else 50.0
+    
     up_trend = sum(1 for s in stocks if s.get("trend") == "Uptrend")
     tone = ("broadly bullish" if buys > sells * 2 else
             "mixed with selective opportunities" if buys >= sells else
             "cautious — risk-off mode")
     return (
-        f"Market is {tone} across the {len(stocks)} stocks analysed. "
+        f"Market is {tone} across the {len(processed_recs)} stocks analysed. "
         f"{buys} BUY signals, {sells} SELL signals. "
         f"Average RSI: {avg_rsi} ({'oversold' if avg_rsi < 40 else 'overbought' if avg_rsi > 65 else 'neutral'}). "
         f"{up_trend} of {len(stocks)} stocks in confirmed uptrends. "
@@ -435,10 +439,8 @@ def generate_market_summary(stocks):
 @app.route("/")
 def index():
     try:
-        # Explicitly tracking your precise template filename mapping
         return render_template("Daily_Recomendation.html")
     except Exception:
-        # Fallback response in case the file is missing or misplaced in directory
         return "<h1>Market Dashboard Backend Active</h1><p>API Endpoint: <a href='/api/recommendations'>/api/recommendations</a></p>"
 
 @app.route("/api/market-status")
@@ -461,7 +463,6 @@ def recommendations():
     try:
         stocks_data = []
         
-        # Safe thread context boundary mapping to preserve rate limits on concurrent runs
         with ThreadPoolExecutor(max_workers=5) as executor:
             futures = [executor.submit(fetch_stock, item) for item in WATCHLIST]
             for future in futures:
@@ -493,7 +494,8 @@ def recommendations():
         return jsonify({
             "generated_at": datetime.now(IST).strftime("%d %b %Y, %I:%M %p IST"),
             "stocks_analyzed": len(stocks_data),
-            "market_summary": generate_market_summary(stock_recs),
+            # Fixed arguments: mapping raw metrics array + structural recs array concurrently
+            "market_summary": generate_market_summary(top5, stock_recs),
             "stocks": stock_recs,
             "options": opt_recs,
         })
